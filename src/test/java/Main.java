@@ -1,6 +1,5 @@
-import com.codingame.game.LennyPlayer;
-import com.codingame.game.ThibaudPlayer;
 import com.codingame.gameengine.runner.GameRunner;
+import com.standalone.game.LennyPlayer;
 
 public class Main {
     public static void main(String[] args) {

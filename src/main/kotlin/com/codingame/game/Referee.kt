@@ -305,7 +305,7 @@ class Referee : AbstractReferee() {
 
       // Tear down enemy mines
       allCreeps.forEach { creep ->
-        val closestObstacle = obstacles.minBy { it.location.distanceTo(creep.location) }!!
+        val closestObstacle = obstacles.minByOrNull { it.location.distanceTo(creep.location) }!!
         if (closestObstacle.location.distanceTo(creep.location) >= closestObstacle.radius + creep.radius + TOUCHING_DELTA) return@forEach
         val struc = closestObstacle.structure
         if (struc is Mine && struc.owner != creep.owner) closestObstacle.structure = null
@@ -317,7 +317,7 @@ class Referee : AbstractReferee() {
       // Queens tear down enemy structures (not TOWERs)
       gameManager.activePlayers.forEach {
         val queen = it.queenUnit
-        val closestObstacle = obstacles.minBy { it.location.distanceTo(queen.location) }!!
+        val closestObstacle = obstacles.minByOrNull { it.location.distanceTo(queen.location) }!!
         if (closestObstacle.location.distanceTo(queen.location) >= closestObstacle.radius + queen.radius + TOUCHING_DELTA) return@forEach
         val struc = closestObstacle.structure
         if ((struc is Mine || struc is Barracks) && struc.owner != queen.owner) closestObstacle.structure = null

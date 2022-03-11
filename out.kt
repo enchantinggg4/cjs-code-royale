@@ -1,47 +1,3 @@
-package com.codingame.game
-
-import anims.Anim
-import anims.AnimModule
-import com.codingame.game.Constants.GIANT_BUST_RATE
-import com.codingame.game.Constants.KNIGHT_DAMAGE
-import com.codingame.game.Constants.QUEEN_HP
-import com.codingame.game.Constants.QUEEN_MASS
-import com.codingame.game.Constants.QUEEN_RADIUS
-import com.codingame.game.Constants.QUEEN_SPEED
-import com.codingame.game.Constants.ARCHER_DAMAGE
-import com.codingame.game.Constants.ARCHER_DAMAGE_TO_GIANTS
-import com.codingame.game.Constants.TOUCHING_DELTA
-import com.codingame.gameengine.core.GameManager
-import com.codingame.gameengine.module.entities.Curve
-import com.codingame.gameengine.module.entities.Entity
-import com.codingame.gameengine.module.entities.GraphicEntityModule
-import tooltipModule.TooltipModule
-import java.lang.UnsupportedOperationException
-import java.util.*
-
-lateinit var theEntityManager: GraphicEntityModule
-lateinit var theTooltipModule: TooltipModule
-lateinit var theGameManager: GameManager<Player>
-lateinit var theAnimModule: AnimModule
-lateinit var theRandom: Random
-
-val viewportX = 0..1920
-val viewportY = 0..1000
-
-var Anim.location: Vector2
-  get() = throw UnsupportedOperationException()
-  set(value) {
-    params["x"] = value.x
-    params["y"] = value.y
-  }
-
-var <T : Entity<*>?> Entity<T>.location: Vector2
-  get() = Vector2(x - viewportX.first, y - viewportY.first)
-
-  set(value) {
-    x = (value.x + viewportX.first).toInt()
-    y = (value.y + viewportY.first).toInt()
-  }
 
 abstract class FieldObject {
   abstract var location: Vector2
@@ -51,16 +7,6 @@ abstract class FieldObject {
 
 abstract class Unit(val owner: Player) : FieldObject() {
   abstract fun damage(damageAmount: Int)
-
-  protected val tokenCircle = theEntityManager.createSprite()
-    .setImage(if (owner.isSecondPlayer) "Unite_Base_Bleu" else "Unite_Base_Rouge")
-    .setAnchor(0.5)
-    .setZIndex(40)!!   // TODO: set to some kind of increasing ID
-
-  protected val characterSprite = theEntityManager.createSprite()
-    .setZIndex(41)
-    .setScale(1.2)
-    .setAnchor(0.5)!!
 
   protected val tokenGroup = theEntityManager.createGroup(tokenCircle, characterSprite)
 
@@ -177,8 +123,8 @@ class GiantCreep(
       .firstOrNull {
         val struc = it.structure
         struc is Tower
-          && struc.owner == owner.enemyPlayer
-          && it.location.distanceTo(location) < radius + it.radius + TOUCHING_DELTA
+                && struc.owner == owner.enemyPlayer
+                && it.location.distanceTo(location) < radius + it.radius + TOUCHING_DELTA
       }?.also {
         (it.structure as Tower).health -= GIANT_BUST_RATE
         val creepToTower = it.location - location
@@ -302,4 +248,3 @@ class ArcherCreep(owner: Player, creepType: CreepType)
       .minByOrNull { it.location.distanceTo(location) }
   }
 }
-

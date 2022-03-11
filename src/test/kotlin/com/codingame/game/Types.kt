@@ -1,13 +1,13 @@
 package com.codingame.game
 
-data class BebraUnitInput(
-  val location: BebraVector2,
+data class UnitInput(
+  val location: Vector2,
   val isFriendly: Boolean,
   val creepType: CreepType?,
   val health: Int
 )
 
-data class BebraObstaclePerTurnInput(
+data class ObstaclePerTurnInput(
   val obstacleId: Int,
   val gold: Int,
   val maxMineSize: Int,
@@ -17,9 +17,9 @@ data class BebraObstaclePerTurnInput(
   val attackRadiusOrCreepType: Int
 )
 
-data class BebraObstacleInput(
+data class ObstacleInput(
   val obstacleId: Int,
-  val location: BebraVector2,
+  val location: Vector2,
   val radius: Int,
   var gold: Int = -1,
   var maxMineSize: Int = -1,
@@ -28,7 +28,7 @@ data class BebraObstacleInput(
   var incomeRateOrHealthOrCooldown: Int = -1,  // mine / tower / barracks
   var attackRadiusOrCreepType: Int = -1        // tower / barracks
 ) {
-  fun applyUpdate(update: BebraObstaclePerTurnInput) {
+  fun applyUpdate(update: ObstaclePerTurnInput) {
     structureType = update.structureType
     gold = update.gold
     maxMineSize = update.maxMineSize
@@ -38,14 +38,14 @@ data class BebraObstacleInput(
   }
 }
 
-data class BebraAllInputs(
-  val queenLoc: BebraVector2,
+data class AllInputs(
+  val queenLoc: Vector2,
   val health: Int,
   val gold: Int,
   val touchedObstacleId: Int,
-  val enemyQueenLoc: BebraVector2,
+  val enemyQueenLoc: Vector2,
   val enemyHealth: Int,
-  val obstacles: List<BebraObstacleInput>,
-  val friendlyCreeps: List<BebraUnitInput>,
-  val enemyCreeps: List<BebraUnitInput>
+  val obstacles: List<ObstacleInput>,
+  val friendlyCreeps: List<UnitInput>,
+  val enemyCreeps: List<UnitInput>
 )

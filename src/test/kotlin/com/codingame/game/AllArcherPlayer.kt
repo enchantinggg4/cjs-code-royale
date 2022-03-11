@@ -1,13 +1,13 @@
 import com.codingame.game.BasePlayer
 import com.codingame.game.Constants.QUEEN_RADIUS
 import com.codingame.game.Constants.TOUCHING_DELTA
-import com.codingame.game.BebraObstacleInput
+import com.codingame.game.ObstacleInput
 import java.io.InputStream
 import java.io.PrintStream
 
 class AllArcherPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream): BasePlayer(stdin, stdout, stderr) {
 
-  private fun myBarracks(): List<BebraObstacleInput> = obstacles.filter { it.owner == 0 && it.structureType == 2 }
+  private fun myBarracks(): List<ObstacleInput> = obstacles.filter { it.owner == 0 && it.structureType == 2 }
 
   init {
 

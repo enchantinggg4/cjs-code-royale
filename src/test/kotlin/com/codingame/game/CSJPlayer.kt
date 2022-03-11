@@ -90,7 +90,7 @@ class CSJPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream): B
         return queenTarget.let { "BUILD ${it.obstacleId} TOWER"}
       }
 
-      fun getTrainOrders(): List<BebraObstacleInput> {
+      fun getTrainOrders(): List<ObstacleInput> {
         val myBarracks = obstacles.filter { it.owner == 0 && it.structureType == 2 }
 
         if (myBarracks.isEmpty()) return listOf()

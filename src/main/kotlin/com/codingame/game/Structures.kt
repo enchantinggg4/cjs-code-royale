@@ -290,7 +290,7 @@ class Tower(override val obstacle: Obstacle, override val owner: Player, var att
   }
 
   override fun act(): Boolean {
-    val closestEnemy = owner.enemyPlayer.activeCreeps.minBy { it.location.distanceTo(obstacle.location) }
+    val closestEnemy = owner.enemyPlayer.activeCreeps.minByOrNull { it.location.distanceTo(obstacle.location) }
     val enemyQueen = owner.enemyPlayer.queenUnit
 
     attackTarget = when {
