@@ -7,6 +7,57 @@ import java.io.PrintStream
 import java.util.*
 import kotlin.math.*
 
+
+val viewportX = 0..1920
+val viewportY = 0..1000
+
+object Constants {
+
+    const val KNIGHT_SID = 0
+    const val ARCHER_SID = 1
+    const val GIANT_SID = 2
+
+    const val STARTING_GOLD = 100
+
+    const val QUEEN_SPEED = 60
+    const val TOWER_HP_INITIAL = 200
+    const val TOWER_HP_INCREMENT = 100
+    const val TOWER_HP_MAXIMUM = 800
+    const val TOWER_CREEP_DAMAGE_MIN = 3
+    const val TOWER_CREEP_DAMAGE_CLIMB_DISTANCE = 200
+    const val TOWER_QUEEN_DAMAGE_MIN = 1
+    const val TOWER_QUEEN_DAMAGE_CLIMB_DISTANCE = 200
+    const val TOWER_MELT_RATE = 4
+    const val TOWER_COVERAGE_PER_HP = 1000
+
+    const val GIANT_BUST_RATE = 80
+
+    const val OBSTACLE_GAP = 90
+    val OBSTACLE_RADIUS_RANGE = 60..90
+    val OBSTACLE_GOLD_RANGE = 200..250
+    val OBSTACLE_MINE_BASESIZE_RANGE = 1..3
+    const val OBSTACLE_GOLD_INCREASE = 50
+    const val OBSTACLE_GOLD_INCREASE_DISTANCE_1 = 500
+    const val OBSTACLE_GOLD_INCREASE_DISTANCE_2 = 200
+    val OBSTACLE_PAIRS = 6..12
+
+    const val KNIGHT_DAMAGE = 1
+    const val ARCHER_DAMAGE = 2
+    const val ARCHER_DAMAGE_TO_GIANTS = 10
+
+    const val QUEEN_RADIUS = 30
+    const val QUEEN_MASS = 10000
+    val QUEEN_HP = 5..20
+    const val QUEEN_HP_MULT = 5   // i.e. 25..100 by 5
+    const val QUEEN_VISION = 300
+
+    val WORLD_WIDTH = viewportX.last - viewportX.first
+    val WORLD_HEIGHT = viewportY.last - viewportY.first
+
+    const val TOUCHING_DELTA = 5
+    const val WOOD_FIXED_INCOME = 10
+}
+
 data class Distance(private val squareDistance: Double) : Comparable<Distance> {
     override fun compareTo(other: Distance) = squareDistance.compareTo(other.squareDistance)
     operator fun compareTo(compareDist: Double) = squareDistance.compareTo(compareDist * compareDist)
@@ -124,8 +175,44 @@ data class ObstacleInput(
         attackRadiusOrCreepType = update.attackRadiusOrCreepType
     }
 
+    val isFullySaturated: Boolean
+        get() = this.isMine && this.incomeRateOrHealthOrCooldown == maxMineSize
+
+    val isTower: Boolean
+        get() = this.structureType == 1
+
+
+    val isMine: Boolean
+        get() = this.structureType == 0
+
+    val isAllied
+        get() = owner == 0
+
+    val isNeutral
+        get() = owner == -1
+
+    fun isBarrackOf(type: CreepType): Boolean {
+        return this.structureType == 2 && this.creepType() == type
+    }
+
+    fun creepType(): CreepType? {
+        if (attackRadiusOrCreepType > 2) {
+            return null
+        }
+        return CreepType.values()[attackRadiusOrCreepType]
+    }
+
+
     fun isOccupied(): Boolean {
         return this.structureType != -1
+    }
+
+    fun cords(): String {
+        return "${location.x.toInt()} ${location.y.toInt()}"
+    }
+
+    fun healthPercent(): Double {
+        return this.incomeRateOrHealthOrCooldown / Constants.TOWER_HP_MAXIMUM.toDouble()
     }
 }
 
@@ -157,10 +244,10 @@ abstract class BasePlayer(stdin: InputStream, val stdout: PrintStream, val stder
         scanner.nextInt(), scanner.nextInt(), scanner.nextInt()
     )
 
+    @Suppress("RedundantLambdaOrAnonymousFunction")
     private fun readUnit() = UnitInput(
         Vector2(scanner.nextInt(), scanner.nextInt()), scanner.nextInt() == 0, {
-            val type = scanner.nextInt()
-            when (type) {
+            when (val type = scanner.nextInt()) {
                 -1 -> null
                 else -> CreepType.values()[type]
             }
@@ -201,54 +288,294 @@ abstract class BasePlayer(stdin: InputStream, val stdout: PrintStream, val stder
 class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) : BasePlayer(stdin, stdout, stderr) {
     lateinit var inputs: AllInputs
 
+
+    lateinit var closestCorner: Vector2
+
     init {
+
         while (true) {
             this.inputs = readInputs()
-            stderr.println("read inputs")
-//            fd()
-            stdout.println("WAIT")
-            stdout.println("TRAIN")
+            initCorner()
+            fd()
+        }
+    }
+
+    private fun initCorner() {
+        if (!this::closestCorner.isInitialized) {
+            closestCorner = if (inputs.queenLoc.x < 1920 / 2) {
+                if (inputs.queenLoc.y < 1000 / 2) {
+                    Vector2(0, 0)
+                } else {
+                    Vector2(0, 1000)
+                }
+            } else {
+                if (inputs.queenLoc.y < 1000 / 2) {
+                    Vector2(1920, 0)
+                } else {
+                    Vector2(1920, 1000)
+                }
+            }
         }
     }
 
     private fun closestFree(): ObstacleInput {
-        return inputs.obstacles.filter { !it.isOccupied() }.minByOrNull {
+        return inputs.obstacles.filter { !it.isAllied }.minByOrNull {
             it.location.distanceTo(inputs.queenLoc)
         }!!
     }
 
+    private fun closestAnd(predicate: (ObstacleInput) -> Boolean): ObstacleInput? = inputs.obstacles.filter {
+        !it.isAllied && predicate(it)
+    }.minByOrNull { it.location.distanceTo(inputs.queenLoc) }
 
-    fun decideAction() {
 
+    fun getTouchedSite(): ObstacleInput? {
         val touched = inputs.touchedObstacleId
-
         if (touched != -1) {
-            val touchedSite = inputs.obstacles.find { it.obstacleId == touched }!!
-            if (!touchedSite.isOccupied()) {
-                write("BUILD $touched BARRACKS-KNIGHT")
-                return
-            }
+            return inputs.obstacles.find { it.obstacleId == touched }!!
+        }
+        return null
+    }
+
+
+    private fun tryBuild(siteId: Int, action: (site: ObstacleInput) -> Unit) {
+        val touchedSite = getTouchedSite()
+        if (touchedSite != null && touchedSite.obstacleId == siteId) {
+            action(touchedSite)
+        } else {
+            val site = inputs.obstacles.find { it.obstacleId == siteId }!!
+            write("MOVE ${site.cords()}")
+        }
+    }
+
+
+    fun mineStrategy() {
+        // archer -> mine -> lvlup mine -> knights on enemy mines
+
+        val archers = inputs.obstacles.filter { it.isAllied && it.isBarrackOf(CreepType.ARCHER) }
+        val knights = inputs.obstacles.filter { it.isAllied && it.isBarrackOf(CreepType.KNIGHT) }
+        val mines = inputs.obstacles.filter { it.isAllied && it.isMine }
+
+        val towers = inputs.obstacles.filter { it.isAllied && it.isTower }
+
+
+        val closestEnemyKnight = inputs.enemyCreeps.filter { it.creepType == CreepType.KNIGHT }.minByOrNull {
+            it.location.distanceTo(inputs.queenLoc).toDouble
         }
 
-        val closest = closestFree()
-        write("MOVE ${closest.location.x} ${closest.location.y}")
+        // 5 100
+        // 1 5
+        // 3 66
+
+        // 66/3 = 22
+        // 100/5 = 20
+        // 5/1 = 5
+
+        fun isMineSafe(mine: ObstacleInput): Boolean {
+            val myDistance = inputs.queenLoc.distanceTo(mine.location)
+            val closestEnemyKnight = inputs.enemyCreeps.filter { it.creepType == CreepType.KNIGHT }.minByOrNull {
+                it.location.distanceTo(mine.location).toDouble
+            }
+
+            val enemyQueenDistance = inputs.enemyQueenLoc.distanceTo(mine.location)
+
+            if (closestEnemyKnight != null) {
+                val dst = closestEnemyKnight.location.distanceTo(mine.location)
+                // we are going to get intercepted, not good
+                if (dst.toDouble - myDistance.toDouble < 100) return false
+            }
+
+            if (abs(enemyQueenDistance.toDouble - myDistance.toDouble) < 300) {
+                // queen is going to intercept
+                return false
+            }
+
+
+            return true
+        }
+
+        val reservedMine =
+            inputs.obstacles.filter {
+
+                // when we can override allies?
+                if (!isMineSafe(it)) return@filter false
+
+                // its a mine and we know its not saturated
+
+                if (it.isMine) {
+                    if (!it.isFullySaturated) {
+                        stderr.println("Oh ${it.obstacleId} is not fully saturated! ${it.incomeRateOrHealthOrCooldown} != ${it.maxMineSize}")
+                        return@filter true
+                    } else {
+                        return@filter false
+                    }
+                }
+
+                val closestKnight = inputs.enemyCreeps.filter { it.creepType == CreepType.KNIGHT }.sortedBy {
+                    it.location.distanceTo(it.location).toDouble
+                }.firstOrNull()
+
+                val isSafeTower =
+                    if (closestKnight != null) closestKnight.location.distanceTo(it.location).toDouble > 500
+                    else true
+
+                if (it.isTower && isSafeTower) return@filter true
+                else (it.gold == -1 || it.gold > 0)
+
+
+            }.sortedByDescending {
+                val potential = max(1, it.maxMineSize) + max(it.gold, 0)
+                val score = potential / it.location.distanceTo(closestCorner).toDouble
+
+
+                score
+            }.firstOrNull()
+
+        stderr.println("${reservedMine?.obstacleId} best candidate")
+
+        val closestFree = closestAnd { it.obstacleId != reservedMine?.obstacleId }
+
+
+        val myMine = mines.firstOrNull()
+
+        val desiredTowerLocation = inputs.obstacles.minByOrNull {
+            it.location.distanceTo(closestCorner).toDouble
+        }!!
+
+        val closestTower = towers.minByOrNull { it.location.distanceTo(inputs.queenLoc).toDouble }
+
+
+        when {
+            closestEnemyKnight != null && closestEnemyKnight.location.distanceTo(inputs.queenLoc).toDouble < 300 -> {
+                // we panik!
+                val literalClosest = inputs.obstacles.minByOrNull { it.location.distanceTo(inputs.queenLoc).toDouble }!!
+                stderr.println("I panick!!! want to make tower ${literalClosest.obstacleId}")
+                tryBuild(literalClosest.obstacleId) {
+                    tower()
+                }
+            }
+
+            closestFree == null -> write("MOVE ${closestCorner.x.toInt()} ${closestCorner.y.toInt()}")
+            archers.isEmpty() -> {
+                tryBuild(closestFree.obstacleId) {
+                    archer()
+                }
+            }
+            knights.isNotEmpty() && reservedMine != null -> {
+                tryBuild(reservedMine.obstacleId) {
+                    mine()
+                }
+            }
+            myMine != null && myMine.incomeRateOrHealthOrCooldown < myMine.maxMineSize -> {
+                // UPGRADE
+                tryBuild(myMine.obstacleId) {
+                    mine()
+                }
+            }
+            knights.isEmpty() -> {
+                tryBuild(closestFree.obstacleId) {
+                    knight()
+                }
+            }
+            !desiredTowerLocation.isTower -> {
+                tryBuild(desiredTowerLocation.obstacleId) {
+                    tower()
+                }
+            }
+            closestTower != null -> {
+                write("MOVE ${closestTower.cords()}")
+            }
+            else -> {
+                // write("MOVE ${closestCorner.x.toInt()} ${closestCorner.y.toInt()}")
+                val literalClosest = inputs.obstacles.minByOrNull { it.location.distanceTo(inputs.queenLoc).toDouble }!!
+                stderr.println("I want to make tower ${literalClosest.obstacleId}")
+                tryBuild(literalClosest.obstacleId) {
+                    tower()
+                }
+            }
+
+        }
+
 
     }
 
+
+    fun decideAction() {
+        return mineStrategy()
+        val archers = inputs.obstacles.filter { it.isAllied && it.isBarrackOf(CreepType.ARCHER) }
+        val knights = inputs.obstacles.filter { it.isAllied && it.isBarrackOf(CreepType.KNIGHT) }
+
+        val towers = inputs.obstacles.filter { it.isAllied && it.isTower }
+
+        val closestFree = closestFree()
+
+        when {
+            archers.isEmpty() -> {
+                tryBuild(closestFree.obstacleId) {
+                    archer()
+                }
+            }
+            towers.size < 2 -> {
+                // towers
+                tryBuild(closestFree.obstacleId) {
+                    tower()
+                }
+            }
+            knights.isEmpty() -> {
+                tryBuild(closestFree.obstacleId) {
+                    knight()
+                }
+            }
+            else -> write("MOVE ${closestCorner.x.toInt()} ${closestCorner.y.toInt()}")
+
+        }
+
+
+    }
 
     fun fd() {
         decideAction()
-        write("TRAIN")
 
+        val archers = inputs.obstacles.filter { it.isAllied && it.isBarrackOf(CreepType.ARCHER) }
+        val knights = inputs.obstacles.filter { it.isAllied && it.isBarrackOf(CreepType.KNIGHT) }
+
+        val archersCount = inputs.friendlyCreeps.count { it.creepType == CreepType.ARCHER }
+        val knightCount = inputs.friendlyCreeps.count { it.creepType == CreepType.KNIGHT }
+
+        if (archersCount > knightCount && knights.isNotEmpty())
+            write("TRAIN ${knights.first().obstacleId}")
+        else if (knightCount >= archersCount && archers.isNotEmpty())
+            write("TRAIN ${archers.first().obstacleId}")
+        else
+            write("TRAIN")
     }
 
 
+    fun tower() {
+        write("BUILD ${inputs.touchedObstacleId} TOWER")
+    }
+
+    fun giant() {
+        write("BUILD ${inputs.touchedObstacleId} BARRACKS-GIANT")
+    }
+
+    fun knight() {
+        write("BUILD ${inputs.touchedObstacleId} BARRACKS-KNIGHT")
+    }
+
+    fun archer() {
+        write("BUILD ${inputs.touchedObstacleId} BARRACKS-ARCHER")
+    }
+
+    fun mine() {
+        write("BUILD ${inputs.touchedObstacleId} MINE")
+    }
+
     fun write(s: String) {
-        stderr.println("[WRITE] $s")
         stdout.println(s)
     }
 }
 
-//fun main(args: Array<String>) {
-//    LennyPlayer(System.`in`, System.out, System.err)
-//}
+fun main(args: Array<String>) {
+    LennyPlayer(System.`in`, System.out, System.err)
+}
