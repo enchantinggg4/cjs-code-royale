@@ -157,15 +157,16 @@ abstract class BasePlayer(stdin: InputStream, val stdout: PrintStream, val stder
         scanner.nextInt(), scanner.nextInt(), scanner.nextInt()
     )
 
-    private fun readUnit(): UnitInput {
-        val type = scanner.nextInt()
-        return UnitInput(
-            Vector2(scanner.nextInt(), scanner.nextInt()), scanner.nextInt() == 0, when (type) {
+    private fun readUnit() = UnitInput(
+        Vector2(scanner.nextInt(), scanner.nextInt()), scanner.nextInt() == 0, {
+            val type = scanner.nextInt()
+            when (type) {
                 -1 -> null
                 else -> CreepType.values()[type]
-            }, scanner.nextInt()
-        )
-    }//.also { stderr.println("Read creep: $it")}
+            }
+        }(), scanner.nextInt()
+    )//.also { stderr.println("Read creep: $it")}
+
 
     init {
         obstacles = (0 until scanner.nextInt()).map { readObstacleInit() }
@@ -203,8 +204,10 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
     init {
         while (true) {
             this.inputs = readInputs()
-            fd()
-
+            stderr.println("read inputs")
+//            fd()
+            stdout.println("WAIT")
+            stdout.println("TRAIN")
         }
     }
 
@@ -246,6 +249,6 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
     }
 }
 
-fun main(args: Array<String>) {
-    LennyPlayer(System.`in`, System.out, System.err)
-}
+//fun main(args: Array<String>) {
+//    LennyPlayer(System.`in`, System.out, System.err)
+//}
