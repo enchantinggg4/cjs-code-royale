@@ -1,11 +1,11 @@
 import com.codingame.game.BasePlayer
-import com.codingame.game.ObstacleInput
+import com.codingame.game.BebraObstacleInput
 import java.io.InputStream
 import java.io.PrintStream
 
 class Level1Player(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) : BasePlayer(stdin, stdout, stderr) {
 
-  private fun myBarracks(): List<ObstacleInput> = obstacles.filter { it.owner == 0 && it.structureType == 2 }
+  private fun myBarracks(): List<BebraObstacleInput> = obstacles.filter { it.owner == 0 && it.structureType == 2 }
 
   init {
 
@@ -16,7 +16,7 @@ class Level1Player(stdin: InputStream, stdout: PrintStream, stderr: PrintStream)
 
         val queenTarget = obstacles
           .filter { it.owner == -1 }
-          .minBy { it.location.distanceTo(queenLoc) } ?: return "WAIT"
+          .minByOrNull { it.location.distanceTo(queenLoc) } ?: return "WAIT"
 
         val needsKnight = obstacles.count { it.structureType == 2 && it.owner == 0 && it.attackRadiusOrCreepType == 0 } < 2
         val needsArcher = !obstacles.any { it.structureType == 2 && it.owner == 0 && it.attackRadiusOrCreepType == 1 }

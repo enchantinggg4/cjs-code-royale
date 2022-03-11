@@ -8,21 +8,21 @@ import java.util.*
 abstract class BasePlayer(stdin: InputStream, val stdout: PrintStream, val stderr: PrintStream) {
   private val scanner = Scanner(stdin)
 
-  var obstacles = listOf<ObstacleInput>()
+  var obstacles = listOf<BebraObstacleInput>()
 
-  private fun readObstacleInit() = ObstacleInput(
+  private fun readObstacleInit() = BebraObstacleInput(
     scanner.nextInt(),
-    Vector2(scanner.nextInt(), scanner.nextInt()),
+    BebraVector2(scanner.nextInt(), scanner.nextInt()),
     scanner.nextInt()
   )//.also { stderr.println("Read obstacle: $it")}
 
-  private fun readObstaclePerTurn() = ObstaclePerTurnInput(
+  private fun readObstaclePerTurn() = BebraObstaclePerTurnInput(
     scanner.nextInt(), scanner.nextInt(), scanner.nextInt(), scanner.nextInt(),
       scanner.nextInt(), scanner.nextInt(), scanner.nextInt()
   )
 
-  private fun readUnit() = UnitInput(
-    Vector2(scanner.nextInt(), scanner.nextInt()), scanner.nextInt() == 0, {
+  private fun readUnit() = BebraUnitInput(
+    BebraVector2(scanner.nextInt(), scanner.nextInt()), scanner.nextInt() == 0, {
       val type = scanner.nextInt()
       when (type) {
         -1 -> null
@@ -35,12 +35,12 @@ abstract class BasePlayer(stdin: InputStream, val stdout: PrintStream, val stder
     obstacles = (0 until scanner.nextInt()).map { readObstacleInit() }
   }
 
-  protected fun readInputs(): AllInputs {
+  protected fun readInputs(): BebraAllInputs {
     val gold = scanner.nextInt()
     val touchedObstacleId = scanner.nextInt()
     val obstacles = (0 until obstacles.size).map { applyObstacleUpdate(readObstaclePerTurn()) }
     val units = (0 until scanner.nextInt()).map { readUnit() }
-    return AllInputs(
+    return BebraAllInputs(
       units.single { it.isFriendly && it.creepType == null }.let { it.location },
       units.single { it.isFriendly && it.creepType == null }.let { it.health },
       gold,
@@ -53,7 +53,7 @@ abstract class BasePlayer(stdin: InputStream, val stdout: PrintStream, val stder
     )
   }//.also { stderr.println("Read inputs: $it")}
 
-  private fun applyObstacleUpdate(update: ObstaclePerTurnInput): ObstacleInput {
+  private fun applyObstacleUpdate(update: BebraObstaclePerTurnInput): BebraObstacleInput {
     val matchingObstacle = obstacles.find { it.obstacleId == update.obstacleId }!!
     matchingObstacle.applyUpdate(update)
     return matchingObstacle

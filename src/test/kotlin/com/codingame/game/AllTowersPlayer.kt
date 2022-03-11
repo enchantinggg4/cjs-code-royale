@@ -19,7 +19,7 @@ class AllTowersPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStre
 
         val queenTarget = obstacles
           .filter { it.owner == -1 }
-          .minBy { it.location.distanceTo(queenLoc).toDouble - it.radius } ?: return "WAIT"
+          .minByOrNull { it.location.distanceTo(queenLoc).toDouble - it.radius } ?: return "WAIT"
 
         return "BUILD ${queenTarget.obstacleId} TOWER"
       }

@@ -54,13 +54,13 @@ class CSJPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream): B
           .filter { target -> !obstacles.any {
             it.owner == 1 && it.structureType == 1 &&
               it.location.distanceTo(target.location).toDouble - it.attackRadiusOrCreepType - target.radius < -30 }}
-          .minBy { it.location.distanceTo(queenLoc).toDouble - it.radius }
+          .minByOrNull { it.location.distanceTo(queenLoc).toDouble - it.radius }
 
         if (queenTarget == null) {
           // bear toward closest friendly tower
           val closestTower = obstacles
             .filter { it.owner == 0 && it.structureType == 1 }
-            .minBy { it.location.distanceTo(queenLoc).toDouble - it.radius }
+            .minByOrNull { it.location.distanceTo(queenLoc).toDouble - it.radius }
 
           return closestTower?.let { "BUILD ${it.obstacleId} TOWER" } ?: "WAIT"
         }
@@ -90,7 +90,7 @@ class CSJPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream): B
         return queenTarget.let { "BUILD ${it.obstacleId} TOWER"}
       }
 
-      fun getTrainOrders(): List<ObstacleInput> {
+      fun getTrainOrders(): List<BebraObstacleInput> {
         val myBarracks = obstacles.filter { it.owner == 0 && it.structureType == 2 }
 
         if (myBarracks.isEmpty()) return listOf()
