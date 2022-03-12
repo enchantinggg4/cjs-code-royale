@@ -13,13 +13,19 @@ import kotlin.math.*
 val viewportX = 0..1920
 val viewportY = 0..1000
 
+object StructureType {
+    const val MINE = 0
+    const val TOWER = 1
+    const val BARRACK = 2
+}
+
 data class CreepInstance(val type: CreepType)
 
 fun Collection<ObstacleInput>.joinIds() = (if (isNotEmpty()) " " else "") + map { it.obstacleId }.joinToString(" ")
 
 fun Map<CreepType, Int>.queue(): PriorityQueue<CreepInstance> {
     val q = PriorityQueue<CreepInstance> { a, b ->
-        getValue(a.type) - getValue(b.type)
+        getValue(b.type) - getValue(a.type)
     }
     entries.forEach { entry ->
         repeat(entry.value) {
@@ -183,7 +189,7 @@ data class ObstacleInput(
     var structureType: Int = -1,                 // -1 = None, 0 = Mine, 1 = Tower, 2 = Barracks
     var owner: Int = -1,                         // 0 = Us, 1 = Enemy
     var incomeRateOrHealthOrCooldown: Int = -1,  // mine / tower / barracks
-    var attackRadiusOrCreepType: Int = -1        // tower / barracks
+    var attackRadiusOrCreepType: Int = -1        // tower / barracks,
 ) {
     fun applyUpdate(update: ObstaclePerTurnInput) {
         structureType = update.structureType
@@ -195,15 +201,21 @@ data class ObstacleInput(
     }
 
 
+    val range: Double
+        get() = sqrt((incomeRateOrHealthOrCooldown * 1000 + radius) / PI)
+
     val isFullySaturated: Boolean
         get() = this.isMine && this.incomeRateOrHealthOrCooldown == maxMineSize
 
+    val saturationRate
+        get() = this.incomeRateOrHealthOrCooldown / maxMineSize.toDouble()
+
     val isTower: Boolean
-        get() = this.structureType == 1
+        get() = this.structureType == StructureType.TOWER
 
 
     val isMine: Boolean
-        get() = this.structureType == 0
+        get() = this.structureType == StructureType.MINE
 
     val isAllied
         get() = owner == 0
@@ -215,7 +227,7 @@ data class ObstacleInput(
         get() = owner == -1
 
     val isBarrack: Boolean
-        get() = structureType == 2
+        get() = structureType == StructureType.BARRACK
 
     fun isBarrackOf(type: CreepType): Boolean {
         return this.structureType == 2 && this.creepType() == type
@@ -329,7 +341,7 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
     val safetyWeight = 10.0
 
 
-    val delimeter = 40
+    val delimeter = 20
 
     val xGrid = 1920 / delimeter
     val yGrid = 1000 / delimeter
@@ -366,28 +378,36 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
         }
     }
 
+    private fun applyGradient(
+        i: Int, j: Int, radius: Int, factor: Double, gradient: (Double) -> Double = {
+            1.0 / it
+        }
+    ) {
+
+        for (gi in -radius until radius) {
+            for (gj in -radius until radius) {
+                val ti = i + gi
+                val tj = j + gj
+                if (ti < 0 || ti >= xGrid || tj < 0 || tj >= yGrid) continue
+
+                val distanceSq = sqrt((gi * gi + gj * gj).toDouble())
+                val initialScore = safetyMatrix[tj][ti]
+                safetyMatrix[tj][ti] = initialScore + gradient(distanceSq) * factor
+            }
+        }
+    }
+
+
     private fun updateSafetyMatrix() {
 
-        val enemyTowerScore = 10.0
-        val allyTowerScore = -15.0
+        val knightDangerRadius = toGridLen(1000)
+        val archerSafetyRadius = toGridLen(1000)
 
-
-        val archerRaxRadius = 600
-
-        val enemyRaxProximityRadius = 600
-
-
-        val archerSafetyRadius = 400
-        val knightDangerRadius = 400.0
-
-
-        // Add gradient that our side is generally safer
-
+        // Initial filling with gradient
         for (i in 0 until xGrid) {
             for (j in 0 until yGrid) {
                 val cords = toCords(i, j)
-
-                var score = if (isRed) {
+                val score = if (isRed) {
                     // e.g. X = 0 (most left) is the safest, so it needs to be lowest
                     cords.x / 1920 - 0.5
                 } else {
@@ -395,41 +415,69 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                     // 1800
                     0.5 - cords.x / 1920
                 } * 12
-
-                score += enemyTowers.sumOf {
-                    min(it.radius / it.location.distanceTo(cords).toDouble, 1.0)
-                } * enemyTowerScore
-
-                score += alliedTowers.sumOf {
-                    min(1.0, it.radius / it.location.distanceTo(cords).toDouble)
-                } * allyTowerScore
-
-                input.enemyCreeps.filter { it.creepType == CreepType.KNIGHT }.forEach {
-                    score += knightDangerRadius / it.location.distanceTo(cords).toDouble
-                }
-
-                input.friendlyCreeps.filter { it.creepType == CreepType.ARCHER }.forEach {
-                    score += -1.0 * archerSafetyRadius / it.location.distanceTo(cords).toDouble
-                }
-
-                input.obstacles.filter { it.isBarrackOf(CreepType.KNIGHT) && it.isEnemy }.forEach {
-                    score += (enemyRaxProximityRadius / it.location.distanceTo(cords).toDouble)
-                }
-
-                input.obstacles.filter { it.isBarrackOf(CreepType.ARCHER) && it.isAllied }.forEach {
-//                    val trainProgress = 1 - ( + 1) / 8.0
-                    val trainProgress =
-                        (8 - if (it.incomeRateOrHealthOrCooldown == 0) 8 else it.incomeRateOrHealthOrCooldown) / 8.0
-
-                    score += (archerRaxRadius / it.location.distanceTo(cords).toDouble) * -1 * trainProgress
-                }
-
                 safetyMatrix[j][i] = score
             }
         }
 
+        input.friendlyCreeps.filter { it.creepType == CreepType.ARCHER }.forEach {
+            // Aight now we gradient shiet
+            val (i, j) = toGrid(it.location)
+            applyGradient(i, j, archerSafetyRadius, -5.0) { distance ->
+                1.0 / distance
+            }
+        }
+
+        input.enemyCreeps.filter { it.creepType == CreepType.KNIGHT }.forEach {
+            // Aight now we gradient shiet
+            val (i, j) = toGrid(it.location)
+            applyGradient(i, j, knightDangerRadius, 5.0) { distance ->
+                25.0 / distance
+            }
+        }
+
+        enemyTowers.forEach {
+            val (i, j) = toGrid(it.location)
+            applyGradient(i, j, toGridLen(it.range), 5.0) { distance ->
+                5.0
+            }
+        }
+
+        alliedTowers.forEach {
+            val (i, j) = toGrid(it.location)
+            applyGradient(i, j, toGridLen(it.range), 5.0) { distance ->
+                if (distance < toGridLen(it.range))
+                    -2.0
+                else
+                    0.0
+            }
+        }
+
+        input.obstacles.filter { it.isBarrackOf(CreepType.KNIGHT) && it.isEnemy }.forEach {
+            val (i, j) = toGrid(it.location)
+            applyGradient(i, j, toGridLen(800), 2.0) { distance ->
+                2.0 / distance
+            }
+        }
+
+        input.obstacles.filter { it.isBarrackOf(CreepType.ARCHER) && it.isAllied }.forEach {
+            val trainProgress =
+                (8 - if (it.incomeRateOrHealthOrCooldown == 0) 8 else it.incomeRateOrHealthOrCooldown) / 8.0
+
+            val (i, j) = toGrid(it.location)
+            applyGradient(i, j, toGridLen(1400), 2.0) { distance ->
+                (-1.0 * trainProgress) / distance
+            }
+        }
     }
 
+    private fun toGridLen(dist: Double): Int = (dist / delimeter).toInt()
+    private fun toGridLen(dist: Int): Int = (dist / delimeter)
+
+    private fun toGrid(cords: Vector2): Pair<Int, Int> {
+        val i = (cords.x / delimeter).toInt()
+        val j = (cords.y / delimeter).toInt()
+        return i to j
+    }
 
     private fun toCords(x: Int, y: Int): Vector2 {
         return Vector2(x * delimeter, y * delimeter)
@@ -524,7 +572,7 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
         get() = income + input.gold / 8
 
     val enemyIncome
-        get() = alliedMines.sumOf { it.incomeRateOrHealthOrCooldown }
+        get() = enemyMines.sumOf { it.incomeRateOrHealthOrCooldown }
 
     val alliedArcherRacks
         get() = alliedBarracks.filter { it.isBarrackOf(CreepType.ARCHER) }
@@ -551,15 +599,37 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
             // Knights are always in need
             priorityMap[CreepType.KNIGHT] = 2
 
-            // todo: predict enemy knight rate
-            priorityMap[CreepType.ARCHER] = input.enemyCreeps.count { it.creepType == CreepType.KNIGHT } / 2
+
+            val currentKnightScore = input.enemyCreeps.count { it.creepType == CreepType.KNIGHT } / 3.0
+
+            val enemyRacks = enemyBarracks.filter { it.creepType() == CreepType.KNIGHT }
+            val knightPredictionScore = enemyRacks.sumOf {
+                // 0 cd = can start training now
+                // 7 cd = just started training
+                if (it.incomeRateOrHealthOrCooldown > 0) {
+                    (8.0 - max(it.incomeRateOrHealthOrCooldown, 4)) / 8
+                } else {
+                    0.0
+                }
+            }
+
+
+            // e.g. 1 racks with cd 1
+            // 7/8
+            priorityMap[CreepType.ARCHER] =
+                (1 + ceil(
+                    knightPredictionScore / max(
+                        1,
+                        enemyRacks.size
+                    )
+                ) + currentKnightScore + enemyIncome / 6.0).roundToInt()
+
 
             return priorityMap
         }
 
     private val desiredRacks: Map<CreepType, Int>
         get() {
-            val map = creepPriority
             // Here we need to include our finance info
 
             val buildMap = hashMapOf<CreepType, Int>()
@@ -569,7 +639,7 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
 
             var leftIncome = incomeWithCurrent
 
-            val affordable = map.queue().takeWhile {
+            val affordable = creepPriority.queue().takeWhile {
                 val newIncome = leftIncome - it.type.cost / it.type.buildTime
                 if (newIncome < 0) {
                     false
@@ -620,6 +690,28 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
 
     // #REGION utils
 
+    private fun getBuildDesirability(site: ObstacleInput): Double {
+        return when {
+            site.isOccupied() -> {
+                when (site.structureType) {
+                    StructureType.BARRACK -> {
+                        0.8
+                    }
+                    StructureType.TOWER -> {
+                        site.healthPercent()
+                    }
+                    StructureType.MINE -> {
+                        // the more saturated it is the less its desirable to build on
+                        site.saturationRate
+                    }
+                    else -> 1.0
+                }
+            }
+
+            else -> 0.5
+        }
+    }
+
     private fun getTouchedSite(): ObstacleInput? {
         val touched = input.touchedObstacleId
         if (touched != -1) {
@@ -628,16 +720,20 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
         return null
     }
 
-    private fun closestSafestToQueen(threshold: Boolean = true, predicate: (ObstacleInput) -> Boolean = { true }) =
+    private fun closestSafestToQueen(threshold: Boolean = false, predicate: (ObstacleInput) -> Boolean = { true }) =
         input.obstacles.filter {
             if (threshold) {
                 val safety = getSafety(it.location)
-                val safetyThreshold = 0
+                val safetyThreshold = 100
 
                 safety < safetyThreshold && predicate(it)
             } else predicate(it)
         }.minByOrNull {
-            it.location.distanceTo(input.queenLoc).toDouble * (getSafety(it.location, bias = 1000.0) * safetyWeight)
+            val desirability = getBuildDesirability(it)
+            it.location.distanceTo(input.queenLoc).toDouble * (getSafety(
+                it.location,
+                bias = 1000.0
+            ) * safetyWeight) * desirability
         }
 
 
@@ -681,9 +777,13 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
      */
     private fun decideAction() {
 
-        val dangerLevelPerKnightFactor = 3
 
-        val queenDangerThreshold = 5
+        debug("CreepPriority: $creepPriority")
+        debug("As Q: ${creepPriority.queue().toList()}")
+
+        val dangerLevelPerKnightFactor = 2
+
+        val queenDangerThreshold = 3
 
         val dangerDistance = 400
 //        val isInDanger = input.enemyCreeps.any { it.location.distanceTo(input.queenLoc).toDouble < dangerDistance }
@@ -853,9 +953,11 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
 
 
     private fun generateDebugSafetyImage() {
+        // only do red for now
+        if (!isRed) return
         val safetyMatrixCopy = safetyMatrix.copyOf()
         val tickCopy = tick
-        val clr = if (closestCorner.x > 1000) "blue" else "red"
+        val clr = if (!isRed) "blue" else "red"
 
         val width = xGrid
         val height = yGrid
@@ -873,7 +975,14 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
             for (j in 0 until yGrid) {
                 val safety = safetyMatrixCopy[j][i]
 
-                val pixelColor = if (safety < 0) {
+                val (mi, mj) = toGrid(input.queenLoc)
+                val (ei, ej) = toGrid(input.enemyQueenLoc)
+
+                val pixelColor = if (i == mi && j == mj) {
+                    if (isRed) intArrayOf(255, 0, 255) else intArrayOf(0, 0, 255)
+                } else if (i == ei && j == ej) {
+                    if (isRed) intArrayOf(0, 0, 255) else intArrayOf(255, 0, 255)
+                } else if (safety < 0) {
                     val positive = -safety
                     val mapped = abs(positive / lowest) * 255
                     intArrayOf(0, mapped.toInt(), 0)
