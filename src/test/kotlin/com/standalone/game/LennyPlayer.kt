@@ -335,7 +335,8 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
     lateinit var closestCorner: Vector2
 
 
-    val safetyWeight = 10.0
+    val safetyWeight
+        get() = 10.0 + queenHealthPercent * 40
 
 
     val delimeter = 20
@@ -729,21 +730,31 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
         return null
     }
 
-    private fun closestSafestToQueen(threshold: Boolean = false, predicate: (ObstacleInput) -> Boolean = { true }) =
-        input.obstacles.filter {
-            if (threshold) {
-                val safety = getDangerLevel(it.location)
-                val safetyThreshold = 100
 
-                safety < safetyThreshold && predicate(it)
-            } else predicate(it)
-        }.minByOrNull {
-            val desirability = getBuildDesirability(it)
-            it.location.distanceTo(input.queenLoc).toDouble * (getDangerLevel(
-                it.location,
-                bias = 1000.0
-            ) * safetyWeight) * desirability
-        }
+    private fun closestSafestToQueenQueue(
+        threshold: Boolean = false,
+        safetyFactor: Double = 1.0,
+        predicate: (ObstacleInput) -> Boolean = { true }
+    ) = input.obstacles.filter {
+        if (threshold) {
+            val safety = getDangerLevel(it.location)
+            val safetyThreshold = 100
+
+            safety < safetyThreshold && predicate(it)
+        } else predicate(it)
+    }.sortedBy {
+        val desirability = getBuildDesirability(it)
+        it.location.distanceTo(input.queenLoc).toDouble * (getDangerLevel(
+            it.location,
+            bias = 1000.0
+        ) * safetyWeight * safetyFactor) * desirability
+    }
+
+    private fun closestSafestToQueen(
+        threshold: Boolean = false,
+        safetyFactor: Double = 1.0,
+        predicate: (ObstacleInput) -> Boolean = { true }
+    ) = closestSafestToQueenQueue(threshold, safetyFactor, predicate).firstOrNull()
 
 
     private fun tryBuild(obstacle: ObstacleInput, action: (site: ObstacleInput) -> Unit) {
@@ -792,10 +803,12 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
 
         val dangerLevelPerKnightFactor = 2
 
-        val queenDangerThreshold = 8 - queenHealthPercent * 5
+        val queenDangerThreshold = 8
 
         val dangerDistance = 400
 //        val isInDanger = input.enemyCreeps.any { it.location.distanceTo(input.queenLoc).toDouble < dangerDistance }
+
+        val emptyMines = closestSafestToQueenQueue(true, 50.0) { it.gold == 0 && (!it.isOccupied() || it.isMine) }
 
         val queenDangerLevel = getDangerLevel(input.queenLoc)
         val isInDanger = queenDangerLevel > queenDangerThreshold
@@ -828,7 +841,7 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
 
                 when {
                     candidates.size < dangerLevel -> {
-                        val toBuild = closestSafestToQueen(threshold = false) {
+                        val toBuild = closestSafestToQueen(threshold = false, safetyFactor = 50.0) {
                             if (it.isBarrack && it.incomeRateOrHealthOrCooldown == 0)
                                 true
                             else
@@ -868,7 +881,7 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                                     debug("Got enough towers, run!")
                                     val safety = findSafestSpot()
                                     val toGrow =
-                                        closestSafestToQueen { it.isTower && it.isAllied && it.incomeRateOrHealthOrCooldown < 450 }
+                                        closestSafestToQueen { it.isTower && it.isAllied && it.incomeRateOrHealthOrCooldown < 401 }
                                     if (toGrow != null) {
                                         tryBuild(toGrow) {
                                             tower()
@@ -912,6 +925,12 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                 debug("Building archer")
                 tryBuild(closestFree) {
                     archer()
+                }
+            }
+            emptyMines.isNotEmpty() -> {
+                val tw = emptyMines.first()
+                tryBuild(tw) {
+                    tower()
                 }
             }
             targetMine != null -> {
