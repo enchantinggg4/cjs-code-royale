@@ -1,11 +1,7 @@
 # TODO:
-- Tweak parameters so queen doesn't freak out
 - Tweak parameters so archers are more prioritized
 - Tweak params so far "safe" mines are taken or for panic shelter
-- Make archers depend on enemy racks count, not current amount of knights
-- If we are safing near tower, grow it / juke
-- Prioritize untaken sites for tower shelters
-- Tweak knight radius and strength for tower x 4 situation
 - Fix enemy tower affecting hole fucking map
 - TODO: implement pathfinding
 - TODO: maybe optimize safety matrix and in future make compatible with pathfinding(use own grid with low seed)
+- TODO: adapt to the queen's health(we almost always win in macro game but lose in rushes)

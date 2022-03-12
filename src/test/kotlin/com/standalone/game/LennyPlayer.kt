@@ -335,9 +335,6 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
     lateinit var closestCorner: Vector2
 
 
-    val middle = Vector2(1920 / 2, 1000 / 2)
-
-
     val safetyWeight = 10.0
 
 
@@ -358,7 +355,8 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
      * [(2,0),(2,1),(2,2)],
      * [(3,0),(3,1),(3,2)],
      */
-    private lateinit var safetyMatrix: Array<Array<Double>>
+    private lateinit var dangerMatrix: Array<Array<Double>>
+    private lateinit var protectionMatrix: Array<Array<Double>>
 
     init {
         initSafetyMatrix()
@@ -373,13 +371,16 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
     }
 
     private fun initSafetyMatrix() {
-        safetyMatrix = Array(yGrid) {
+        dangerMatrix = Array(yGrid) {
+            Array(xGrid) { 1.0 }
+        }
+        protectionMatrix = Array(yGrid) {
             Array(xGrid) { 1.0 }
         }
     }
 
     private fun applyGradient(
-        i: Int, j: Int, radius: Int, factor: Double, gradient: (Double) -> Double = {
+        matrix: Array<Array<Double>>, i: Int, j: Int, radius: Int, factor: Double, gradient: (Double) -> Double = {
             1.0 / it
         }
     ) {
@@ -391,8 +392,8 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                 if (ti < 0 || ti >= xGrid || tj < 0 || tj >= yGrid) continue
 
                 val distanceSq = sqrt((gi * gi + gj * gj).toDouble())
-                val initialScore = safetyMatrix[tj][ti]
-                safetyMatrix[tj][ti] = initialScore + gradient(distanceSq) * factor
+                val initialScore = matrix[tj][ti]
+                matrix[tj][ti] = initialScore + gradient(distanceSq) * factor
             }
         }
     }
@@ -415,14 +416,15 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                     // 1800
                     0.5 - cords.x / 1920
                 } * 12
-                safetyMatrix[j][i] = score
+                dangerMatrix[j][i] = score
+                protectionMatrix[j][i] = 0.0
             }
         }
 
         input.friendlyCreeps.filter { it.creepType == CreepType.ARCHER }.forEach {
             // Aight now we gradient shiet
             val (i, j) = toGrid(it.location)
-            applyGradient(i, j, archerSafetyRadius, -5.0) { distance ->
+            applyGradient(protectionMatrix, i, j, archerSafetyRadius, -5.0) { distance ->
                 1.0 / distance
             }
         }
@@ -430,23 +432,23 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
         input.enemyCreeps.filter { it.creepType == CreepType.KNIGHT }.forEach {
             // Aight now we gradient shiet
             val (i, j) = toGrid(it.location)
-            applyGradient(i, j, knightDangerRadius, 5.0) { distance ->
-                25.0 / distance
+            applyGradient(dangerMatrix, i, j, knightDangerRadius, 5.0) { distance ->
+                20.0 / distance
             }
         }
 
         enemyTowers.forEach {
             val (i, j) = toGrid(it.location)
-            applyGradient(i, j, toGridLen(it.range), 5.0) { distance ->
+            applyGradient(dangerMatrix, i, j, toGridLen(it.range), 5.0) { distance ->
                 5.0
             }
         }
 
         alliedTowers.forEach {
             val (i, j) = toGrid(it.location)
-            applyGradient(i, j, toGridLen(it.range), 5.0) { distance ->
+            applyGradient(protectionMatrix, i, j, toGridLen(it.range), 5.0) { distance ->
                 if (distance < toGridLen(it.range))
-                    -2.0
+                    2.0
                 else
                     0.0
             }
@@ -454,7 +456,7 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
 
         input.obstacles.filter { it.isBarrackOf(CreepType.KNIGHT) && it.isEnemy }.forEach {
             val (i, j) = toGrid(it.location)
-            applyGradient(i, j, toGridLen(800), 2.0) { distance ->
+            applyGradient(dangerMatrix, i, j, toGridLen(800), 2.0) { distance ->
                 2.0 / distance
             }
         }
@@ -464,8 +466,8 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                 (8 - if (it.incomeRateOrHealthOrCooldown == 0) 8 else it.incomeRateOrHealthOrCooldown) / 8.0
 
             val (i, j) = toGrid(it.location)
-            applyGradient(i, j, toGridLen(1400), 2.0) { distance ->
-                (-1.0 * trainProgress) / distance
+            applyGradient(protectionMatrix, i, j, toGridLen(1400), 2.0) { distance ->
+                (1.0 * trainProgress) / distance
             }
         }
     }
@@ -483,21 +485,21 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
         return Vector2(x * delimeter, y * delimeter)
     }
 
-    private fun getSafety(cords: Vector2, bias: Double = 0.0): Double {
+    private fun getDangerLevel(cords: Vector2, bias: Double = 0.0): Double {
         val i = (cords.x / delimeter).toInt()
         val j = (cords.y / delimeter).toInt()
-        val sm = safetyMatrix[j][i]
+        val sm = dangerMatrix[j][i]
         return sm + bias
     }
 
     private fun findSafestSpot(): Vector2 {
-        var prevSafety = Double.MAX_VALUE
+        var prevSafety = Double.MIN_VALUE
         var prevCords = Vector2.Zero
 
         for (i in 0 until xGrid) {
             for (j in 0 until yGrid) {
-                val safety = safetyMatrix[j][i]
-                if (safety < prevSafety) {
+                val safety = protectionMatrix[j][i]
+                if (safety > prevSafety) {
                     prevSafety = safety
                     prevCords = toCords(i, j)
                 }
@@ -544,6 +546,13 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
 
     val alliedMines
         get() = alliedStructures.filter { it.isMine }
+
+
+    val queenHealthPercent
+        get() = input.health / 100.0
+
+    val enemyQueenHealthPercent
+        get() = input.enemyHealth / 100.0
 
 
     val knightCount get() = input.friendlyCreeps.count { it.creepType == CreepType.KNIGHT }
@@ -723,14 +732,14 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
     private fun closestSafestToQueen(threshold: Boolean = false, predicate: (ObstacleInput) -> Boolean = { true }) =
         input.obstacles.filter {
             if (threshold) {
-                val safety = getSafety(it.location)
+                val safety = getDangerLevel(it.location)
                 val safetyThreshold = 100
 
                 safety < safetyThreshold && predicate(it)
             } else predicate(it)
         }.minByOrNull {
             val desirability = getBuildDesirability(it)
-            it.location.distanceTo(input.queenLoc).toDouble * (getSafety(
+            it.location.distanceTo(input.queenLoc).toDouble * (getDangerLevel(
                 it.location,
                 bias = 1000.0
             ) * safetyWeight) * desirability
@@ -766,7 +775,7 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                 else -> true
             }
         }.sortedBy {
-            it.location.distanceTo(input.queenLoc).toDouble * getSafety(it.location, bias = 100.0)
+            it.location.distanceTo(input.queenLoc).toDouble * getDangerLevel(it.location, bias = 100.0)
         }.firstOrNull()
     }
 
@@ -783,12 +792,12 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
 
         val dangerLevelPerKnightFactor = 2
 
-        val queenDangerThreshold = 3
+        val queenDangerThreshold = 8 - queenHealthPercent * 5
 
         val dangerDistance = 400
 //        val isInDanger = input.enemyCreeps.any { it.location.distanceTo(input.queenLoc).toDouble < dangerDistance }
 
-        val queenDangerLevel = getSafety(input.queenLoc)
+        val queenDangerLevel = getDangerLevel(input.queenLoc)
         val isInDanger = queenDangerLevel > queenDangerThreshold
 
         // 16 income = po cd knights
@@ -796,7 +805,7 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
         val closestFree = closestSafestToQueen { !it.isOccupied() }
 
         if (closestFree != null)
-            debug("Closest free is: ${closestFree.obstacleId}. Safety there is ${getSafety(closestFree.location)}")
+            debug("Closest free is: ${closestFree.obstacleId}. Safety there is ${getDangerLevel(closestFree.location)}")
         else
             debug("There is no safe closest here")
 
@@ -858,7 +867,14 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                                 } else {
                                     debug("Got enough towers, run!")
                                     val safety = findSafestSpot()
-                                    write("MOVE ${safety.x.toInt()} ${safety.y.toInt()}")
+                                    val toGrow =
+                                        closestSafestToQueen { it.isTower && it.isAllied && it.incomeRateOrHealthOrCooldown < 450 }
+                                    if (toGrow != null) {
+                                        tryBuild(toGrow) {
+                                            tower()
+                                        }
+                                    } else
+                                        write("MOVE ${safety.x.toInt()} ${safety.y.toInt()}")
                                 }
 
                             }
@@ -955,7 +971,7 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
     private fun generateDebugSafetyImage() {
         // only do red for now
         if (!isRed) return
-        val safetyMatrixCopy = safetyMatrix.copyOf()
+
         val tickCopy = tick
         val clr = if (!isRed) "blue" else "red"
 
@@ -973,7 +989,8 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
 
         for (i in 0 until xGrid) {
             for (j in 0 until yGrid) {
-                val safety = safetyMatrixCopy[j][i]
+                val danger = dangerMatrix[j][i]
+                val protection = protectionMatrix[j][i]
 
                 val (mi, mj) = toGrid(input.queenLoc)
                 val (ei, ej) = toGrid(input.enemyQueenLoc)
@@ -982,13 +999,12 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                     if (isRed) intArrayOf(255, 0, 255) else intArrayOf(0, 0, 255)
                 } else if (i == ei && j == ej) {
                     if (isRed) intArrayOf(0, 0, 255) else intArrayOf(255, 0, 255)
-                } else if (safety < 0) {
-                    val positive = -safety
-                    val mapped = abs(positive / lowest) * 255
-                    intArrayOf(0, mapped.toInt(), 0)
                 } else {
-                    val mapped = abs(safety / highest) * 255
-                    intArrayOf(mapped.toInt(), 0, 0)
+                    intArrayOf(
+                        abs((danger / highest) * 255).toInt(),
+                        abs(protection / highest * 255).toInt(),
+                        0
+                    )
                 }
                 output.raster.setPixel(i, j, pixelColor)
             }
