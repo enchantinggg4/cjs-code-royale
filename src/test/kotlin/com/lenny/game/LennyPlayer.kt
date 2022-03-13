@@ -1,4 +1,4 @@
-package com.standalone.game
+package com.lenny.game
 
 
 import java.awt.image.BufferedImage
@@ -21,7 +21,7 @@ object StructureType {
 
 data class CreepInstance(val type: CreepType)
 
-fun Collection<ObstacleInput>.joinIds() = (if (isNotEmpty()) " " else "") + map { it.obstacleId }.joinToString(" ")
+private fun Collection<ObstacleInput>.joinIds() = (if (isNotEmpty()) " " else "") + map { it.obstacleId }.joinToString(" ")
 
 fun Map<CreepType, Int>.queue(): PriorityQueue<CreepInstance> {
     val q = PriorityQueue<CreepInstance> { a, b ->
@@ -837,10 +837,8 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                 val dangerLevel =
                     input.enemyCreeps.count { it.creepType == CreepType.KNIGHT } / dangerLevelPerKnightFactor
 
-                val candidates = alliedTowers.sortedBy { it.location.distanceTo(input.queenLoc).toDouble }
-
                 when {
-                    candidates.size < dangerLevel -> {
+                    alliedTowers.size < min(2, dangerLevel) -> {
                         val toBuild = closestSafestToQueen(threshold = false, safetyFactor = 50.0) {
                             if (it.isBarrack && it.incomeRateOrHealthOrCooldown == 0)
                                 true
@@ -864,13 +862,20 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                          */
                         when {
                             alliedTowers.isNotEmpty() -> {
-//                                val needToGrowTower = alliedTowers.filter {
-//                                    it.incomeRateOrHealthOrCooldown < 450
-//                                }.minByOrNull {
-//                                    it.incomeRateOrHealthOrCooldown
-//                                }
 
-                                val needToGrowTower: ObstacleInput? = null
+                                val touched = getTouchedSite()
+                                if (touched != null && touched.isTower && touched.isAllied && touched.incomeRateOrHealthOrCooldown < 200) {
+                                    tryBuild(touched) {
+                                        tower()
+                                    }
+                                    return
+                                }
+
+                                val needToGrowTower = alliedTowers.filter {
+                                    it.incomeRateOrHealthOrCooldown < 100
+                                }.minByOrNull {
+                                    it.incomeRateOrHealthOrCooldown
+                                }
 
                                 if (needToGrowTower != null) {
                                     debug("We have a tower to grow!")
@@ -878,16 +883,50 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                                         tower()
                                     }
                                 } else {
-                                    debug("Got enough towers, run!")
+
                                     val safety = findSafestSpot()
-                                    val toGrow =
-                                        closestSafestToQueen { it.isTower && it.isAllied && it.incomeRateOrHealthOrCooldown < 401 }
-                                    if (toGrow != null) {
-                                        tryBuild(toGrow) {
-                                            tower()
+                                    when {
+                                        alliedTowers.isNotEmpty() && input.enemyCreeps.filter { it.creepType == CreepType.KNIGHT }
+                                            .isNotEmpty() -> {
+                                            debug("Got enough towers, run!")
+                                            // TODO: implement kite mechanics
+
+                                            val furthestTower = alliedTowers.maxByOrNull { tower ->
+                                                val closestCreep =
+                                                    input.enemyCreeps.filter { it.creepType == CreepType.KNIGHT }
+                                                        .minByOrNull {
+                                                            it.location.distanceTo(tower.location)
+                                                        }
+
+                                                closestCreep?.location?.distanceTo(tower.location)?.toDouble
+                                                    ?: -1000.0
+                                            }!!
+
+                                            val closestCreep =
+                                                input.enemyCreeps.filter { it.creepType == CreepType.KNIGHT }
+                                                    .minByOrNull {
+                                                        it.location.distanceTo(furthestTower.location)
+                                                    }!!
+
+                                            val distance =
+                                                closestCreep.location.distanceTo(furthestTower.location).toDouble
+
+                                            val direction =
+                                                furthestTower.location.minus(closestCreep.location).normalized
+
+                                            val safeSpot = closestCreep.location.plus(
+                                                direction.times(distance + 300)
+                                            )
+
+
+                                            write("MOVE ${safeSpot.x.toInt()} ${safeSpot.y.toInt()}")
                                         }
-                                    } else
-                                        write("MOVE ${safety.x.toInt()} ${safety.y.toInt()}")
+                                        else -> {
+                                            debug("Cruising to the safest spot...")
+                                            write("MOVE ${safety.x.toInt()} ${safety.y.toInt()}")
+                                        }
+                                    }
+
                                 }
 
                             }
@@ -927,16 +966,16 @@ class LennyPlayer(stdin: InputStream, stdout: PrintStream, stderr: PrintStream) 
                     archer()
                 }
             }
-            emptyMines.isNotEmpty() -> {
-                val tw = emptyMines.first()
-                tryBuild(tw) {
-                    tower()
-                }
-            }
             targetMine != null -> {
                 debug("Upgrading mine")
                 tryBuild(targetMine) {
                     mine()
+                }
+            }
+            emptyMines.isNotEmpty() -> {
+                val tw = emptyMines.first()
+                tryBuild(tw) {
+                    tower()
                 }
             }
             else -> {
